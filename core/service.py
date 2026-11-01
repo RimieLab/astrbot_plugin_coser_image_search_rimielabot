@@ -5,8 +5,10 @@ AstrBot 的 `main.py` 只跟这个类打交道：它不关心引擎细节，也�
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .accounts import (
     display_handle,
@@ -57,6 +59,11 @@ def _as_float(value, default: float, minimum: float = 0.0) -> float:
     return max(minimum, number)
 
 
+def _as_render_mode(value) -> str:
+    mode = str(value or "auto").strip().lower()
+    return mode if mode in ("auto", "browser", "http") else "auto"
+
+
 def _as_engines(value, default: list[str]) -> list[str]:
     """`["lens","saucenao"]` / `"lens, saucenao"` / `None` → 干净的引擎列表。"""
     rows: list[str] = []
@@ -95,6 +102,12 @@ class Settings:
     send_progress: bool = True
     send_on_miss: bool = True
     found_image: str = ""
+    # ── Lens / 浏览器 ──
+    lens_render: str = "auto"
+    browser_exe: str = ""
+    browser_headless: bool = True
+    browser_no_sandbox: bool = False
+    browser_profile: str = ""
 
     @classmethod
     def from_mapping(cls, raw) -> "Settings":
@@ -118,6 +131,11 @@ class Settings:
             send_progress=_as_bool(data.get("send_progress"), True),
             send_on_miss=_as_bool(data.get("send_on_miss"), True),
             found_image=str(data.get("found_image") or "").strip(),
+            lens_render=_as_render_mode(data.get("lens_render")),
+            browser_exe=str(data.get("browser_exe") or "").strip(),
+            browser_headless=_as_bool(data.get("browser_headless"), True),
+            browser_no_sandbox=_as_bool(data.get("browser_no_sandbox"), False),
+            browser_profile=str(data.get("browser_profile") or "").strip(),
         )
 
     @property
@@ -128,15 +146,89 @@ class Settings:
 class FishFinder:
     """一次查图的完整流程：缓存 → 引擎 → 抽账号 → 版式。"""
 
+    # 浏览器起不来之后，10 分钟内不再重试（否则每条指令都要白等一次启动超时）
+    BROWSER_RETRY_SEC = 600.0
+
     def __init__(self, settings: Settings, store: StateStore, *, on_log=None) -> None:
         self.settings = settings
         self.store = store
         self._on_log = on_log
+        self._browser = None
+        self._browser_failed_at = 0.0
+        self._browser_checked = False
 
     def _log(self, message: str) -> None:
         if callable(self._on_log):
             try:
                 self._on_log(message)
+            except Exception:
+                pass
+
+    # ── 浏览器（Lens 渲染用）────────────────────────────────────────
+    def _browser_profile_dir(self):
+        raw = str(self.settings.browser_profile or "").strip()
+        if raw:
+            return Path(os.path.expanduser(raw))
+        return Path(self.store.root) / "browser-profile"
+
+    async def _get_browser(self, engines: list[str]):
+        """按需启动浏览器；不可用时返回 None（Lens 会走 HTTP 并给出明确原因）。"""
+        if "lens" not in engines or self.settings.lens_render == "http":
+            return None
+        if self._browser is not None and self._browser.running:
+            return self._browser
+        if time.monotonic() - self._browser_failed_at < self.BROWSER_RETRY_SEC:
+            return None
+        from .browser import CdpBrowser, find_browser
+
+        exe = find_browser(self.settings.browser_exe)
+        if not exe:
+            if not self._browser_checked:
+                self._log(
+                    "[鱼鱼找鸡] 没找到 Chrome/Edge，谷歌 Lens 无法渲染（"
+                    "装一个浏览器，或用插件配置的 browser_exe 指定路径）"
+                )
+                self._browser_checked = True
+            return None
+        browser = CdpBrowser(
+            exe=exe,
+            proxy=self.settings.proxy,
+            user_data_dir=self._browser_profile_dir(),
+            headless=self.settings.browser_headless,
+            no_sandbox=self.settings.browser_no_sandbox,
+            start_timeout=min(45.0, max(15.0, self.settings.timeout_sec)),
+            on_log=self._log,
+        )
+        try:
+            await browser.start()
+        except Exception as error:
+            self._log(f"[鱼鱼找鸡] 浏览器启动失败，Lens 暂走 HTTP：{error}")
+            self._browser_failed_at = time.monotonic()
+            try:
+                await browser.stop()
+            except Exception:
+                pass
+            return None
+        self._browser = browser
+        return browser
+
+    def browser_status(self) -> dict:
+        from .browser import find_browser
+
+        exe = find_browser(self.settings.browser_exe)
+        return {
+            "available": bool(exe),
+            "exe": exe,
+            "running": bool(self._browser is not None and self._browser.running),
+            "mode": self.settings.lens_render,
+        }
+
+    async def close(self) -> None:
+        browser = self._browser
+        self._browser = None
+        if browser is not None:
+            try:
+                await browser.stop()
             except Exception:
                 pass
 
@@ -167,6 +259,7 @@ class FishFinder:
                 return self._render(cached, cached=True)
 
         started = time.monotonic()
+        browser = await self._get_browser(engine_list)
         async with HttpClient(
             proxy=self.settings.proxy, timeout=self.settings.timeout_sec
         ) as http:
@@ -179,6 +272,8 @@ class FishFinder:
                 on_log=self._log,
                 allow_upload=self.settings.public_upload,
                 upload_ttl=self.settings.upload_ttl,
+                browser=browser,
+                lens_render=self.settings.lens_render,
             )
 
         candidates = result.get("candidates") or []

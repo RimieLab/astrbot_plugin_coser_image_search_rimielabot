@@ -36,6 +36,11 @@ required = {
     "upload_ttl",
     "max_image_mb",
     "artwork_min_similarity",
+    "lens_render",
+    "browser_exe",
+    "browser_headless",
+    "browser_no_sandbox",
+    "browser_profile",
 }
 missing = required - set(data)
 assert not missing, f"缺少配置项: {sorted(missing)}"

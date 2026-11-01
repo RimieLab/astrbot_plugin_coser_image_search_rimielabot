@@ -23,8 +23,9 @@
 ```
 
 > 本项目是 Node 版「鱼鱼找鸡 v1.0.0」的 AstrBot 移植：引擎调用、账号抽取、
-> 同名共识、配额与缓存全部重写成 Python，直接跑在 AstrBot 的进程里，
-> 不需要 Node、不需要无头浏览器。移植细节见 [与 Node 版的差异](#与-node-版的差异)。
+> 同名共识、配额与缓存全部重写成 Python，直接跑在 AstrBot 的进程里。
+> 谷歌 Lens 和原版一样用无头 Chrome/Edge 渲染（结果页需要 JS），
+> 其余引擎纯 HTTP，不需要浏览器。移植细节见 [与 Node 版的差异](#与-node-版的差异)。
 
 ---
 
@@ -50,6 +51,11 @@
 > **网络**：`saucenao` / `tracemoe` / `iqdb` 国内直连一般可用；`lens` 需要服务器
 > 能连谷歌。连不上就在配置里填 `proxy`（例如 `http://127.0.0.1:7890`），
 > 它只影响插件自己的请求，不动系统代理。
+>
+> **浏览器**：`lens` 需要本机有 Chrome / Edge（Windows 自带 Edge 就够；macOS 装 Chrome；
+> Linux / Docker 装 chromium）。插件会自动在常见路径和 `PATH` 里找；装在别处就用
+> `browser_exe` 指定。没有浏览器时 `lens` 会明确报 `LENS_NEEDS_BROWSER`，
+> 其它引擎不受影响。
 
 ## 配置项
 
@@ -57,6 +63,11 @@
 | --- | --- | --- |
 | `enabled` | `true` | 总开关 |
 | `engines` | `lens, saucenao, tracemoe` | 反查引擎，可多选 |
+| `lens_render` | `auto` | Lens 渲染方式：`auto` 有浏览器就用浏览器、失败再退回 HTTP；`browser` 只用浏览器；`http` 只用 HTTP（拿不到真实结果，仅排查用） |
+| `browser_exe` | 空 | 浏览器路径，留空自动找 Chrome/Edge |
+| `browser_headless` | `true` | 无头运行浏览器 |
+| `browser_no_sandbox` | `false` | Docker / root 环境起不来时打开（加 `--no-sandbox`） |
+| `browser_profile` | 空 | 浏览器 profile 目录，留空在插件数据目录下 |
 | `timeout_sec` | `45` | 单个引擎超时（秒） |
 | `max_accounts` | `3` | 最多报几个账号 |
 | `strict_consensus` | `true` | 关掉后名字对不上也把候选号都报出来（自己认） |
@@ -79,11 +90,22 @@
 | 引擎 | 说明 | 需要外网 | 需要图床 |
 | --- | --- | --- | --- |
 | `saucenao` | 动漫/同人图反查，免费、无 key | 否 | 否 |
-| `lens` | 谷歌 Lens，对真人照片最准，能抓到推特主页 | **是** | 否 |
+| `lens` | 谷歌 Lens，对真人照片最准，能抓到推特主页；结果页要 JS，**必须装 Chrome/Edge** | **是** | 否 |
 | `tracemoe` | 动画截屏溯源（给番剧/集数，不是账号） | 否 | 否 |
 | `iqdb` | 动漫图库（danbooru / konachan / yande.re），常排队 | 否 | 否 |
 | `baidu` | 百度识图，结果噪声大，只留账号主页形态的链接（弱证据） | 否 | **是** |
 | `bing` / `yandex` / `google` | 以图搜图，只吃公网图片地址 | 视网络 | **是** |
+
+## 为什么 Lens 需要浏览器
+
+`lens.google.com/v3/upload` 上传图片后会 302 到
+`www.google.com/search?vsrid=…&udm=26`。这个页面是**纯前端渲染**的：直接 HTTP GET
+只能拿到「请启用 JavaScript」的空壳（欧洲出口还会先撞上 Cookie 同意页）。
+一开始的移植版就是踩了这个坑 —— 拿空壳当结果，用户在 QQ 里看到「翻到 15 条相似图」
+其实全是 Google 页面里的垃圾链接，真正那条「皆瀬あかり on X」根本没进候选。
+
+所以现在的做法和原版一致：**用无头浏览器真的把页面跑起来**，再从 DOM 里抽结果。
+`lens_render=http` 只保留给排查网络问题用，它拿不到真实结果。
 
 ## 它是怎么认的（也是「为什么有时候查不到」的原因）
 
@@ -101,8 +123,9 @@
 | | Node 版 | 本插件 |
 | --- | --- | --- |
 | 运行方式 | `node bin/fish.mjs` / 自己接 OneBot | AstrBot 插件，`/鱼鱼找鸡` 指令 |
-| 浏览器 | 无头 Edge/Chrome（CDP 裸驱） | **不需要浏览器** |
-| Lens | 浏览器里造 form POST 上传 | 服务端直接 POST `lens.google.com/v3/upload`，`/goto?url=` 卡片按 302 解域名 |
+| 浏览器 | 无头 Edge/Chrome（CDP 裸驱，Node） | **同样是 CDP 裸驱**，但用 aiohttp WebSocket 重写在 Python 里；Lens 之外不需要浏览器 |
+| Lens | 浏览器里造 form POST 上传 → 抽 DOM 卡片 | 相同思路：浏览器里造 form 上传 → 等 JS 渲染 → 抽卡片；`/goto?url=` 卡片先按 302 解，解不动再读页面里的 JS 跳转 |
+| Lens 纯 HTTP 兜底 | 无 | 有：会明确报 `LENS_NEEDS_BROWSER`（而不是把同意页当结果），方便排查 |
 | 百度 | 真浏览器选文件上传 | 公网 URL 模式（要开 `public_upload`），可达性略差 |
 | 代理 | 只让浏览器走代理 | 插件所有出站请求走同一代理 |
 | 搜索交叉验证（inferred 账号） | 有（依赖 DeepSeek 搜索 key / 浏览器必应） | **未移植** —— 不引入额外 key，只报 direct/weak 证据 |
@@ -140,6 +163,8 @@ core/
   quota.py               冷却 / 每日配额 / 缓存键（纯函数）
   state.py               state.json 原子读写
   net.py                 HTTP + 上传域名白名单 + 图片校验
+  browser.py             无头浏览器：裸驱 CDP（aiohttp WebSocket）
+  lens.py                谷歌 Lens：浏览器渲染 + HTTP 兜底
   engines.py             各引擎适配 + reverse_search 编排
   service.py             配置 → 查图 → 抽账号 → 拼回话 → 缓存
 tests/                   离线测试（自带 AstrBot 桩，不用装 AstrBot）
@@ -153,7 +178,14 @@ bash tests/run_tests.sh
 
 不需要安装 AstrBot、不需要网络：`tests/stub_astrbot.py` 注入最小 AstrBot 桩，
 单元测试覆盖解析、账号抽取、版式、配额缓存，插件测试把 `FishFinder.search`
-换成假实现，验证取图/冷却/配额/回话接线。
+换成假实现，验证取图/冷却/配额/回话接线。Lens 的浏览器流程用假浏览器测，
+CDP 驱动本身需要真浏览器，用下面的脚本验：
+
+```bash
+# 验证无头浏览器能不能起来（可选：真跑一次 Lens，需要外网）
+python tests/live_browser.py
+python tests/live_browser.py 某张图.jpg
+```
 
 要连真实引擎做冒烟测试（会消耗 SauceNAO 额度）：
 
@@ -173,8 +205,20 @@ asyncio.run(main())
 
 ## 常见问题
 
+**报 `LENS_NEEDS_BROWSER`**
+服务器上没找到 Chrome/Edge。装一个（Windows 自带 Edge 就够，Linux 装 chromium），
+或用 `browser_exe` 指定路径；`/鱼鱼找鸡自检` 会显示浏览器是否可用。
+
+**Lens 报 `LENS_BROWSER` / 浏览器起不来**
+Docker / root 环境先打开 `browser_no_sandbox`；`/鱼鱼找鸡状态` 里能看到「Lens 渲染：
+auto · 可用/未找到」。插件会在启动失败时自动再试一次 `--no-sandbox`。
+
 **Lens 一直超时 / 报 `GOOGLE_UNREACHABLE`**
 服务器连不上谷歌。在配置 `proxy` 填本机代理，或用 `/鱼鱼找鸡自检` 确认。
+
+**Lens 报 `GOOGLE_CONSENT`**
+出口 IP 在欧洲时谷歌会先弹 Cookie 同意页。换出口，或直接删掉浏览器 profile
+（`browser_profile` 目录）让它重新协商。
 
 **报 `GOOGLE_CAPTCHA`**
 谷歌要人机验证。换个出口 IP，或先用 `saucenao,tracemoe` 顶着。

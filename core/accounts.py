@@ -281,7 +281,13 @@ def name_from_title_mention(title: str) -> str:
 
 
 def social_name_from_title(title: str) -> str:
-    """Lens 的社交卡片标题长这样：`X吴二棒on X: "…"`；名字是「on <站点>」前面的部分。"""
+    """从社交卡片标题里取人名。
+
+    谷歌 Lens 的卡片两种写法都有：
+      * `X吴二棒on X: "…"`         —— 平台徽标在前
+      * `皆瀬あかり on X: "…"`      —— 人名在前（现在的视觉匹配多数是这种）
+    两种都要认，否则明明翻到了人，回话里却只能显示 handle。
+    """
     text = re.sub(r"\s+", " ", str(title or "")).strip()
     if not text:
         return ""
@@ -292,8 +298,16 @@ def social_name_from_title(title: str) -> str:
         re.I,
     )
     if not match:
+        # 人名在前的形态：`皆瀬あかり on X: "…"`
+        match = re.search(
+            r"^(.{1,36}?)\s+on\s+(?:X|Twitter|Instagram|TikTok|Facebook|Threads|微博|Bilibili)\b",
+            text,
+            re.I,
+        )
+    if not match:
         return ""
-    return re.sub(r"[:：\"'“”]+$", "", match.group(1).strip())[:40].strip()
+    name = re.sub(r"[:：\"'“”]+$", "", match.group(1).strip()).strip()
+    return name[:40] if looks_like_person_name(name) else ""
 
 
 def profile_title_name(title: str) -> dict:

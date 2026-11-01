@@ -10,7 +10,7 @@ help: >-
   引用一条带图的消息发送 /鱼鱼找鸡 即可；也可以把图片和指令发在同一条，
   或直接发 /鱼鱼找鸡 <图片链接>。管理员可用 /鱼鱼找鸡状态、/鱼鱼找鸡自检、
   /鱼鱼找鸡清缓存。
-version: v1.0.0
+version: v1.1.0
 author: Rimrose
 repo: https://github.com/RimieLab/astrbot_plugin_coser_image_search_rimielabot
 support_platforms:

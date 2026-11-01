@@ -401,6 +401,12 @@ class CoserImageSearchPlugin(Star):
                 self._store.charge(key=throttle_key, user_id=user_id)
 
         text = str(result.get("text") or "").strip() or "🐔 没查到"
+        failures = result.get("failures") or []
+        if any("LENS_NEEDS_BROWSER" in str(item.get("reason") or "") for item in failures):
+            text += (
+                "\n\n💡 谷歌 Lens 的结果页要靠浏览器渲染：请在服务器装 Chrome/Edge，"
+                "或用插件配置的 browser_exe 指定路径（装好后 /鱼鱼找鸡状态 会显示可用）"
+            )
         if not result.get("accounts") and not self._settings.send_on_miss:
             text = "❌ 没查到账号（详细说明已在配置里关掉）"
         elapsed = time.monotonic() - started  # 秒（monotonic 本来就是秒）
@@ -440,11 +446,22 @@ class CoserImageSearchPlugin(Star):
     async def fish_status(self, event: AstrMessageEvent):
         stats = self._store.stats()
         engines = describe_engines(self._settings.engines)
+        browser = self._finder.browser_status()
+        if browser["available"]:
+            browser_state = "运行中" if browser["running"] else "可用"
+            browser_text = (
+                f"{browser_state}（{Path(browser['exe']).name}）"
+                if browser["mode"] != "http"
+                else "已禁用（lens_render=http）"
+            )
+        else:
+            browser_text = "未找到 Chrome/Edge（Lens 只能走 HTTP，拿不到结果）"
         lines = [
             "🐔 鱼鱼找鸡 · 状态",
             "",
             f"引擎：{engines}",
             f"代理：{self._settings.proxy or '直连'}",
+            f"Lens 渲染：{browser['mode']} · {browser_text}",
             f"超时：{self._settings.timeout_sec:g} 秒/引擎 · 最多报 {self._settings.max_accounts} 个账号",
             f"同名严格模式：{'开' if self._settings.strict_consensus else '关'}",
             f"临时图床：{'开（' + self._settings.upload_ttl + ' 过期）' if self._settings.public_upload else '关'}",
@@ -470,7 +487,15 @@ class CoserImageSearchPlugin(Star):
             yield event.plain_result(f"🐔 自检失败：{error}")
             event.stop_event()
             return
+        browser = self._finder.browser_status()
         lines = ["🐔 鱼鱼找鸡 · 自检"]
+        if browser["available"]:
+            lines.append(
+                f"✅ 浏览器：{Path(browser['exe']).name}"
+                + ("（禁用中，lens_render=http）" if browser["mode"] == "http" else "")
+            )
+        else:
+            lines.append("❌ 浏览器：没找到 Chrome/Edge —— 谷歌 Lens 只能走 HTTP，拿不到结果")
         for row in rows:
             mark = "✅" if row.get("ok") else "❌"
             lines.append(
@@ -490,7 +515,11 @@ class CoserImageSearchPlugin(Star):
         event.stop_event()
 
     async def terminate(self):
-        """插件卸载时收尾：把状态落盘（缓存/配额在每次写入时已落盘，这里只是兜底）。"""
+        """插件卸载时收尾：关掉无头浏览器，状态文件每次写入都已落盘。"""
+        try:
+            await self._finder.close()
+        except Exception:
+            pass
         try:
             self._log("[鱼鱼找鸡] 已卸载")
         except Exception:

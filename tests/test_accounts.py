@@ -83,6 +83,8 @@ class NameHelpersTest(unittest.TestCase):
     def test_social_name_from_title(self):
         self.assertEqual(social_name_from_title('X吴二棒on X: "hi"'), "吴二棒")
         self.assertEqual(social_name_from_title("Instagram 某coser on Instagram: 1/3"), "某coser")
+        # 人名在前的形态（谷歌视觉匹配现在大多长这样）
+        self.assertEqual(social_name_from_title('皆瀬あかり on X: "🎀ご報告🎀"'), "皆瀬あかり")
         self.assertEqual(social_name_from_title("普通标题"), "")
 
     def test_profile_title_name(self):

@@ -20,12 +20,11 @@ import asyncio
 import json
 import re
 import time
-from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.parse import quote
 
-from .accounts import match_platform, social_name_from_title
+from .accounts import match_platform
 from .net import (
     BROWSER_UA,
-    CHROME_UA,
     HttpClient,
     HttpError,
     RateLimited,
@@ -42,6 +41,7 @@ from .parsers import (
     parse_tracemoe,
     parse_yandex_dom,
 )
+from .lens import lens_candidates, search_lens_browser, search_lens_http
 from .reply import engine_labels
 
 __all__ = [
@@ -204,185 +204,53 @@ async def lens_search(
     timeout: float = 45.0,
     exact_pass: bool = True,
     on_log=None,
+    browser=None,
+    render_mode: str = "auto",
 ) -> list[dict]:
-    """Google Lens：POST 图片 → 结果页 → 抽外链。
+    """Google Lens。
 
-    没有公开 JSON 接口，只有 `lens.google.com/v3/upload` 这个「POST 图片 → 302 到
-    结果页」的网页接口。服务端直接发 multipart 即可，不需要浏览器。
+    `render_mode`：
+      * `auto`    —— 有浏览器就用浏览器渲染，失败再退回纯 HTTP（默认）
+      * `browser` —— 只用浏览器，失败直接报错（便于排查）
+      * `http`    —— 只用纯 HTTP（拿不到 JS 结果，只会给出明确原因）
+
+    实际实现见 `core/lens.py`：Lens 结果页现在是纯前端渲染的，HTTP 只能拿到
+    「请启用 JavaScript」的空壳，必须让页面里的 JS 真跑起来才有结果。
     """
-    form = _form_data()
-    form.add_field(
-        "encoded_image", image_bytes, filename=_filename(mime), content_type=mime or "image/jpeg"
-    )
-    form.add_field("image_content", "")
-    try:
-        page_result = await http.request_text(
-            "POST",
-            f"{LENS_UPLOAD_URL}?hl={quote(hl)}",
-            data=form,
-            timeout=max(timeout, 30.0),
-            headers={
-                "Accept": "text/html,application/xhtml+xml",
-                "Referer": "https://www.google.com/",
-                "User-Agent": CHROME_UA,
-            },
-        )
-    except HttpError as error:
-        message = _reason(error)
-        if re.search(
-            r"连接失败|请求超时|不合法|ERR_CONNECTION|ERR_NAME_NOT_RESOLVED|ERR_TUNNEL|"
-            r"ERR_PROXY|ERR_TIMED_OUT|TIMEOUT",
-            message,
-            re.I,
-        ):
-            raise EngineError(
-                "GOOGLE_UNREACHABLE：谷歌连不上（检查代理 / 外网）", code="GOOGLE_UNREACHABLE"
-            ) from error
-        raise
-
-    page = parse_lens_html(page_result.text, page_result.url)
-    if page.get("captcha"):
-        raise EngineError("GOOGLE_CAPTCHA：谷歌要求验证，稍后再试", code="GOOGLE_CAPTCHA")
-
-    rows = await _collect_lens_rows(http, page, timeout=timeout, on_log=on_log)
-
-    # 「完全匹配」= 同一张图在网上的原出处，通常直接就是原帖；外观相似则只是长得像。
-    # 外观那页已经捞到社交账号就不再跑第二趟（省几秒），否则补一趟。
-    exact_rows: list[dict] = []
-    if exact_pass and not _looks_social(rows):
-        exact_url = _exact_lens_url(page_result.url)
-        if exact_url:
-            try:
-                visit = await http.get_text(
-                    exact_url, timeout=max(timeout, 30.0), headers={"User-Agent": CHROME_UA}
-                )
-                exact_page = parse_lens_html(visit.text, visit.url)
-                if not exact_page.get("captcha"):
-                    exact_rows = await _collect_lens_rows(
-                        http, exact_page, timeout=timeout, on_log=on_log
-                    )
-            except Exception as error:  # 完全匹配这趟失败不影响主结果
-                _log(on_log, f"Lens 完全匹配这趟失败（不影响主结果）：{_reason(error)}")
-
-    candidates = _lens_candidates(rows)
-    if exact_rows:
-        candidates = _lens_candidates(exact_rows, exact=True) + candidates
-    return candidates[:40]
-
-
-def _lens_candidates(rows: list[dict], *, exact: bool = False) -> list[dict]:
-    out: list[dict] = []
-    seen: set[str] = set()
-    for row in rows or []:
-        url = str(row.get("url") or "")
-        if not re.match(r"^https?://", url, re.I) or url in seen:
-            continue
-        seen.add(url)
-        title = str(row.get("title") or "")[:200]
-        candidate = {
-            "engine": "lens",
-            "similarity": None,
-            "title": title,
-            "sourceUrl": url,
-            "authorUrl": "",
-            "authorName": social_name_from_title(title) if title else "",
-            "host": host_of(url),
-            "snippet": "",
-            "links": [url],
-        }
-        if exact:
-            candidate["exact"] = True
-        out.append(candidate)
-        if len(out) >= 40:
-            break
-    return out
-
-
-async def _collect_lens_rows(
-    http: HttpClient, page: dict, *, timeout: float, on_log=None
-) -> list[dict]:
-    rows = [dict(row) for row in (page.get("rows") or []) if row.get("url")]
-    seen = {str(row.get("url")) for row in rows}
-    cards = [card for card in (page.get("cards") or []) if card.get("wrapper")]
-    if not cards:
-        return rows
-    # 社交卡片优先解：它们最可能就是原帖/作者；解够 6 条就停，别把时间花在文章页上
-    social = [card for card in cards if _LENS_SOCIAL_RE.search(str(card.get("title") or ""))]
-    others = [card for card in cards if not _LENS_SOCIAL_RE.search(str(card.get("title") or ""))]
-    for card in (social + others)[:6]:
-        target = await _resolve_lens_goto(http, str(card["wrapper"]), timeout=min(timeout, 12.0))
-        if not target or target in seen:
-            continue
-        seen.add(target)
-        title = str(card.get("title") or "")[:200]
-        rows.append(
-            {
-                "url": target,
-                "title": title,
-                "authorName": social_name_from_title(title),
-            }
-        )
-    return rows
-
-
-async def _resolve_lens_goto(http: HttpClient, wrapper_url: str, *, timeout: float = 12.0) -> str:
-    """把 `google.*/goto?url=<token>` 解成真实域名。
-
-    页面里 fetch 会被 CORS 挡死，但在服务端只要「不跟重定向、读 Location」就行；
-    谷歌自家的中间跳转最多走两跳，一旦落到非谷歌域名就停 —— 不真的把目标页拉下来。
-    """
-    current = str(wrapper_url or "")
-    for _ in range(3):
-        if not re.match(r"^https?://", current, re.I) or not host_allowed(current):
-            return ""
+    mode = str(render_mode or "auto").strip().lower()
+    if mode not in ("auto", "browser", "http"):
+        mode = "auto"
+    if browser is not None and mode in ("auto", "browser"):
         try:
-            result = await http.request_text(
-                "GET",
-                current,
+            return await search_lens_browser(
+                browser,
+                image_bytes,
+                mime,
+                hl=hl,
                 timeout=timeout,
-                allow_redirects=False,
-                headers={"User-Agent": CHROME_UA},
+                exact_pass=exact_pass,
+                on_log=on_log,
             )
-        except HttpError:
-            return ""
-        location = ""
-        for key, value in (result.headers or {}).items():
-            if str(key).lower() == "location":
-                location = str(value)
-                break
-        if not location:
-            return ""
-        target = urljoin(current, location).split("#")[0]
-        host = host_of(target)
-        if not host:
-            return ""
-        if _GOOGLE_HOST_RE.search(host):
-            current = target
-            continue
-        return target
-    return ""
+        except EngineError:
+            raise
+        except Exception as error:  # 浏览器出问题：auto 模式退回 HTTP
+            if mode == "browser":
+                raise EngineError(
+                    f"LENS_BROWSER：浏览器渲染失败（{error}）", code="LENS_BROWSER"
+                ) from error
+            _log(on_log, f"[鱼鱼找鸡] 浏览器渲染失败，退回 HTTP：{error}")
+    elif mode in ("auto", "browser") and browser is None:
+        _log(on_log, "[鱼鱼找鸡] 没找到可用的 Chrome/Edge，Lens 只能走 HTTP（拿不到结果）")
 
-
-def _exact_lens_url(final_url: str) -> str:
-    text = str(final_url or "")
-    if not re.match(r"^https://www\.google\.[a-z.]+/search", text, re.I):
-        return ""
-    try:
-        parts = urlsplit(text)
-    except ValueError:
-        return ""
-    query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != "udm"]
-    query.append(("udm", "48"))
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
-
-
-def _looks_social(rows: list[dict]) -> bool:
-    for row in rows or []:
-        if _LENS_SOCIAL_RE.search(str(row.get("title") or "")):
-            return True
-        if _LENS_SOCIAL_HOST_RE.search(str(row.get("url") or "")):
-            return True
-    return False
+    return await search_lens_http(
+        http,
+        image_bytes,
+        mime,
+        hl=hl,
+        timeout=timeout,
+        exact_pass=exact_pass,
+        on_log=on_log,
+    )
 
 
 # ── 临时图床（只在配置里打开时才用）─────────────────────────────────────────
@@ -473,7 +341,7 @@ async def public_url_engine_search(
             raise HttpError("域名不在白名单")
         result = await http.get_text(url, timeout=timeout)
         page = parse_lens_html(result.text, result.url)
-        return _lens_candidates(page.get("rows") or [])
+        return lens_candidates(page.get("rows") or [])
 
     raise EngineError(f"未知引擎：{engine}")
 
@@ -490,6 +358,8 @@ async def _run_engine(
     timeout: float,
     public_url: str,
     on_log=None,
+    browser=None,
+    lens_render: str = "auto",
 ) -> list[dict]:
     if engine == "saucenao":
         return await saucenao_search(http, image_bytes, mime, timeout=timeout)
@@ -499,7 +369,13 @@ async def _run_engine(
         return await tracemoe_search(http, image_bytes, mime, timeout=timeout)
     if engine == "lens":
         return await lens_search(
-            http, image_bytes, mime, timeout=max(timeout, 30.0), on_log=on_log
+            http,
+            image_bytes,
+            mime,
+            timeout=max(timeout, 30.0),
+            on_log=on_log,
+            browser=browser,
+            render_mode=lens_render,
         )
     if engine in PUBLIC_URL_ENGINES:
         if not public_url:
@@ -522,6 +398,8 @@ async def reverse_search(
     allow_upload: bool = False,
     upload_ttl: str = "1h",
     upload_timeout: float = 30.0,
+    browser=None,
+    lens_render: str = "auto",
 ) -> dict:
     """反查一张图：能并发的并发，需要独占的串行。
 
@@ -549,14 +427,20 @@ async def reverse_search(
     async def record(engine: str) -> None:
         started = time.monotonic()
         try:
-            found = await _run_engine(
-                engine,
-                http,
-                image_bytes,
-                mime,
-                timeout=timeout,
-                public_url=public_url,
-                on_log=on_log,
+            # 单个引擎的整体硬上限：内部再有超时，也不该让一条指令挂到两分钟
+            found = await asyncio.wait_for(
+                _run_engine(
+                    engine,
+                    http,
+                    image_bytes,
+                    mime,
+                    timeout=timeout,
+                    public_url=public_url,
+                    on_log=on_log,
+                    browser=browser,
+                    lens_render=lens_render,
+                ),
+                timeout=float(timeout) + 15.0,
             )
             engines_used.append(engine)
             if found:
@@ -569,6 +453,14 @@ async def reverse_search(
                 f"[鱼鱼找鸡] {engine} 完成 {int((time.monotonic() - started) * 1000)}ms，"
                 f"结果 {len(found or [])} 条",
             )
+        except asyncio.TimeoutError:
+            reason = (
+                f"{engine} 超过 {int(float(timeout) + 15)} 秒没给结果（可调大 timeout_sec，"
+                "或检查该引擎的网络）"
+            )
+            failures.append({"engine": engine, "reason": reason})
+            _log(on_log, f"[鱼鱼找鸡] {engine} 超时：{reason}")
+            return
         except Exception as error:
             reason = _reason(error)
             failures.append({"engine": engine, "reason": reason})

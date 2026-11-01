@@ -468,6 +468,17 @@ _ASSET_HOST_RE = re.compile(
     r"googlesyndication|google-analytics|googletagmanager)\.com$",
     re.I,
 )
+# 同意页 / JS 空壳页里的资源与内部接口：不是「相似图」，混进来只会污染候选。
+# 用户那张真人图就是被这些垃圾（csp.withgoogle.com / youtube / w3.org）顶掉了真结果。
+_JUNK_HOST_RE = re.compile(
+    r"(^|\.)(withgoogle|googleapis|ytimg|ggpht|schema)\.(com|org)$|"
+    r"(^|\.)(doubleclick\.net|w3\.org)$|^youtube\.com$",
+    re.I,
+)
+
+
+def _is_junk_host(host: str) -> bool:
+    return bool(host and _JUNK_HOST_RE.search(host))
 
 
 def _clean_anchor_title(text: str) -> str:
@@ -502,6 +513,8 @@ def parse_lens_html(html: str, final_url: str = "") -> dict:
             continue
         parts = urlsplit(url)
         host = (parts.hostname or "").lower()
+        if _is_junk_host(host):
+            continue
 
         # 谷歌视觉搜索的结果卡片全是 /goto?url=<不透明 token>：真实域名只有
         # 服务端 302 才知道，交给 engines 去解。
@@ -531,6 +544,8 @@ def parse_lens_html(html: str, final_url: str = "") -> dict:
             continue
         host = host_of(url)
         if not host or _GOOGLE_HOST_RE.search(host) or _ASSET_HOST_RE.search(host):
+            continue
+        if _is_junk_host(host):
             continue
         seen.add(url)
         rows.append({"url": url, "title": ""})

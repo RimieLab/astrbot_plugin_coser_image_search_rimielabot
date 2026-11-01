@@ -43,6 +43,36 @@
     "type": "bool",
     "default": true
   },
+  "lens_render": {
+    "description": "谷歌 Lens 渲染方式",
+    "hint": "auto：有 Chrome/Edge 就用浏览器渲染（最准），启动失败再退回 HTTP；browser：只用浏览器，失败直接报错；http：只用 HTTP。注意 Lens 结果页需要 JS，纯 HTTP 拿不到真实结果，只用来排查网络",
+    "type": "string",
+    "default": "auto"
+  },
+  "browser_exe": {
+    "description": "浏览器可执行文件路径",
+    "hint": "留空 = 自动找 Chrome/Edge。服务器上浏览器装在奇怪位置时填这里，例如 /usr/bin/chromium",
+    "type": "string",
+    "default": ""
+  },
+  "browser_headless": {
+    "description": "无头运行浏览器",
+    "hint": "一般保持开启；需要肉眼调试时才关",
+    "type": "bool",
+    "default": true
+  },
+  "browser_no_sandbox": {
+    "description": "浏览器禁用沙箱",
+    "hint": "Docker / root 环境下 Chrome 常起不来，开启后加 --no-sandbox；普通环境保持关闭（启动失败会自动再试一次）",
+    "type": "bool",
+    "default": false
+  },
+  "browser_profile": {
+    "description": "浏览器 profile 目录",
+    "hint": "留空 = data/plugin_data/coser_image_search/browser-profile；换目录等于换一套谷歌 cookie",
+    "type": "string",
+    "default": ""
+  },
   "proxy": {
     "description": "出站代理",
     "hint": "如 http://127.0.0.1:7890，只影响插件自己的请求，不动系统代理。连不上谷歌时填这个；留空 = 直连",

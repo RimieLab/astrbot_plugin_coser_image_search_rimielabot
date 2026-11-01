@@ -56,7 +56,7 @@ class PluginTest(unittest.TestCase):
         self.plugin = self._make_plugin()
 
     # ── 工具 ─────────────────────────────────────────────────────────
-    def _make_plugin(self, *, account=None, cached=False, empty=False, **overrides):
+    def _make_plugin(self, *, account=None, cached=False, empty=False, failures=None, **overrides):
         config = {
             "enabled": True,
             "engines": ["saucenao"],
@@ -87,7 +87,7 @@ class PluginTest(unittest.TestCase):
                     {"title": "阿薰kaOri 图", "sourceUrl": "https://x.com/izayoill/status/1"}
                 ],
                 "engines_used": ["saucenao"],
-                "failures": [],
+                "failures": list(failures or []),
                 "text": CANNED_TEXT if accounts else "🎯 鱼鱼找鸡结果\n\n❌ 没查到账号。SauceNAO，都空",
                 "cached": cached,
                 "engines_text": "SauceNAO",
@@ -164,6 +164,16 @@ class PluginTest(unittest.TestCase):
         self.assertIsInstance(chain[0], stub.Image)
         self.assertIsInstance(chain[1], stub.Plain)
         self.assertIn("🎯 鱼鱼找鸡结果", chain[1].text)
+
+    def test_lens_needs_browser_hint(self):
+        plugin = self._make_plugin(
+            empty=True,
+            failures=[{"engine": "lens", "reason": "LENS_NEEDS_BROWSER：需要浏览器渲染"}],
+        )
+        results = stub.drive(plugin.fish_find(self._event_with_image()))
+        text = results[-1][1]
+        self.assertIn("Chrome/Edge", text)
+        self.assertIn("browser_exe", text)
 
     def test_miss_without_detail(self):
         plugin = self._make_plugin(empty=True, send_on_miss=False)

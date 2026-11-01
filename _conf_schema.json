@@ -73,6 +73,12 @@
     "type": "string",
     "default": ""
   },
+  "google_cookie": {
+    "description": "谷歌 Cookie（可选，给无法开浏览器的服务器用）",
+    "hint": "在你自己的浏览器里通过谷歌验证后，导出 google.com 的 cookie，按 `名字=值; 名字=值` 粘贴到这里；插件只取 SID/SOCS/NID 等登录态 cookie 注入无头 Chrome。留空 = 不注入",
+    "type": "string",
+    "default": ""
+  },
   "proxy": {
     "description": "出站代理",
     "hint": "如 http://127.0.0.1:7890，只影响插件自己的请求，不动系统代理。连不上谷歌时填这个；留空 = 直连",

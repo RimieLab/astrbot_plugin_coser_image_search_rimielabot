@@ -68,6 +68,7 @@
 | `browser_headless` | `true` | 无头运行浏览器 |
 | `browser_no_sandbox` | `false` | Docker / root 环境起不来时打开（加 `--no-sandbox`） |
 | `browser_profile` | 空 | 浏览器 profile 目录，留空在插件数据目录下 |
+| `google_cookie` | 空 | 可选：从你自己浏览器导出的谷歌 cookie（`名字=值; 名字=值`）。服务器没法开图形界面过「我是人类」验证时用 |
 | `timeout_sec` | `45` | 单个引擎超时（秒） |
 | `max_accounts` | `3` | 最多报几个账号 |
 | `strict_consensus` | `true` | 关掉后名字对不上也把候选号都报出来（自己认） |
@@ -215,6 +216,12 @@ auto · 可用/未找到」。插件会在启动失败时自动再试一次 `--n
 
 **Lens 一直超时 / 报 `GOOGLE_UNREACHABLE`**
 服务器连不上谷歌。在配置 `proxy` 填本机代理，或用 `/鱼鱼找鸡自检` 确认。
+
+**Lens 报 `GOOGLE_CAPTCHA`，但服务器没法开浏览器点验证**
+在自己电脑的 Chrome 里打开 <https://www.google.com> 并通过验证 → F12 → Application →
+Cookies → `https://www.google.com`，把 `SID`、`__Secure-1PSID`、`SOCS`、`NID` 这几项
+按 `名字=值; 名字=值` 拼成一行填进 `google_cookie`。插件只取白名单里的登录态
+cookie 注入无头浏览器，日志里不会打印值。
 
 **Lens 报 `GOOGLE_CONSENT`**
 出口 IP 在欧洲时谷歌会先弹 Cookie 同意页。换出口，或直接删掉浏览器 profile

@@ -22,6 +22,7 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from .accounts import social_name_from_title
 from .browser import BrowserError, CdpBrowser
+from .cookies import google_cookies
 from .net import CHROME_UA, HttpClient, HttpError, host_allowed, host_of
 from .parsers import EngineError, parse_lens_html, strip_tags
 
@@ -479,8 +480,13 @@ async def search_lens_browser(
     exact_pass: bool = True,
     temp_dir: str | os.PathLike | None = None,
     on_log=None,
+    user_cookie: str = "",
 ) -> list[dict]:
-    """用真浏览器跑 Lens：页面里造 form 上传 → 等 JS 渲染 → 抽结果。"""
+    """用真浏览器跑 Lens：页面里造 form 上传 → 等 JS 渲染 → 抽结果。
+
+    `user_cookie` 是用户在自己浏览器里通过验证后导出的谷歌 cookie（见 core/cookies.py）。
+    有它就注入，让谷歌把这个无头浏览器当成「已经验过的人」。
+    """
     if not image_bytes:
         raise EngineError("没有图片")
     suffix = "png" if "png" in str(mime or "").lower() else "jpg"
@@ -501,7 +507,14 @@ async def search_lens_browser(
         try:
             await browser.start()
             log(f"[鱼鱼找鸡] Lens 开始（预算 {max(timeout, 30.0):.0f}s）")
-            await browser.set_cookies(list(_CONSENT_COOKIES))
+            cookies = list(_CONSENT_COOKIES)
+            if user_cookie:
+                extra = google_cookies(user_cookie)
+                cookies.extend(extra)
+                log(f"[鱼鱼找鸡] 已注入用户 cookie {len(extra)} 条")
+            failed = await browser.set_cookies(cookies)
+            if failed:
+                log(f"[鱼鱼找鸡] 有 {len(failed)} 条 cookie 没写进去：{', '.join(failed[:6])}")
             url = await browser.navigate(LENS_HOME, settle=0.8, timeout=min(timeout, 25.0))
             if _CONSENT_RE.search(url):
                 await browser.evaluate(ACCEPT_CONSENT_JS)

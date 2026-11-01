@@ -108,6 +108,8 @@ class Settings:
     browser_headless: bool = True
     browser_no_sandbox: bool = False
     browser_profile: str = ""
+    # 个人浏览器导出的谷歌 cookie（见 core/cookies.py），给无图形环境的服务器过验证用
+    google_cookie: str = ""
 
     @classmethod
     def from_mapping(cls, raw) -> "Settings":
@@ -136,6 +138,7 @@ class Settings:
             browser_headless=_as_bool(data.get("browser_headless"), True),
             browser_no_sandbox=_as_bool(data.get("browser_no_sandbox"), False),
             browser_profile=str(data.get("browser_profile") or "").strip(),
+            google_cookie=str(data.get("google_cookie") or "").strip(),
         )
 
     @property
@@ -274,6 +277,7 @@ class FishFinder:
                 upload_ttl=self.settings.upload_ttl,
                 browser=browser,
                 lens_render=self.settings.lens_render,
+                user_cookie=self.settings.google_cookie,
             )
 
         candidates = result.get("candidates") or []

@@ -589,12 +589,17 @@ class CdpBrowser:
         except BrowserError:
             return ""
 
-    async def set_cookies(self, cookies: list[dict]) -> None:
-        for cookie in cookies:
+    async def set_cookies(self, cookies: list[dict]) -> list[str]:
+        """写入 cookie，返回写失败的 cookie 名（不含值，便于日志）。"""
+        failed: list[str] = []
+        for cookie in cookies or []:
             try:
-                await self._send("Network.setCookie", cookie, timeout=8)
+                result = await self._send("Network.setCookie", cookie, timeout=8)
+                if isinstance(result, dict) and result.get("success") is False:
+                    failed.append(str(cookie.get("name") or "?"))
             except BrowserError:
-                pass
+                failed.append(str(cookie.get("name") or "?"))
+        return failed
 
     async def set_file_input(self, object_id: str, file_path: str) -> None:
         await self._send(

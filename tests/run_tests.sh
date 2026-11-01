@@ -41,6 +41,7 @@ required = {
     "browser_headless",
     "browser_no_sandbox",
     "browser_profile",
+    "google_cookie",
 }
 missing = required - set(data)
 assert not missing, f"缺少配置项: {sorted(missing)}"

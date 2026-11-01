@@ -206,6 +206,7 @@ async def lens_search(
     on_log=None,
     browser=None,
     render_mode: str = "auto",
+    user_cookie: str = "",
 ) -> list[dict]:
     """Google Lens。
 
@@ -230,6 +231,7 @@ async def lens_search(
                 timeout=timeout,
                 exact_pass=exact_pass,
                 on_log=on_log,
+                user_cookie=user_cookie,
             )
         except EngineError:
             raise
@@ -360,6 +362,7 @@ async def _run_engine(
     on_log=None,
     browser=None,
     lens_render: str = "auto",
+    user_cookie: str = "",
 ) -> list[dict]:
     if engine == "saucenao":
         return await saucenao_search(http, image_bytes, mime, timeout=timeout)
@@ -376,6 +379,7 @@ async def _run_engine(
             on_log=on_log,
             browser=browser,
             render_mode=lens_render,
+            user_cookie=user_cookie,
         )
     if engine in PUBLIC_URL_ENGINES:
         if not public_url:
@@ -400,6 +404,7 @@ async def reverse_search(
     upload_timeout: float = 30.0,
     browser=None,
     lens_render: str = "auto",
+    user_cookie: str = "",
 ) -> dict:
     """反查一张图：能并发的并发，需要独占的串行。
 
@@ -439,6 +444,7 @@ async def reverse_search(
                     on_log=on_log,
                     browser=browser,
                     lens_render=lens_render,
+                    user_cookie=user_cookie,
                 ),
                 timeout=float(timeout) + 15.0,
             )

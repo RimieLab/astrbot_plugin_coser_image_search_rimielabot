@@ -1,0 +1,18 @@
+name: coser_image_search
+display_name: 鱼鱼找鸡
+short_desc: 以图反查 coser 的社媒账号（Lens / SauceNAO / trace.moe / IQDB）
+desc: >-
+  引用一张图（或发图片链接）就能反查这是哪个 coser、账号在哪。多引擎：
+  谷歌 Lens、SauceNAO、trace.moe、IQDB、百度识图、必应、Yandex。
+  只上报有真实链接证据的账号，并用「同名共识」过滤掉别人的号；支持结果缓存、
+  冷却、每日配额与临时图床（可选）。全部逻辑在本地跑，不调用任何大模型、不花 API 钱。
+help: >-
+  引用一条带图的消息发送 /鱼鱼找鸡 即可；也可以把图片和指令发在同一条，
+  或直接发 /鱼鱼找鸡 <图片链接>。管理员可用 /鱼鱼找鸡状态、/鱼鱼找鸡自检、
+  /鱼鱼找鸡清缓存。
+version: v1.0.0
+author: Rimrose
+repo: https://github.com/RimieLab/astrbot_plugin_coser_image_search_rimielabot
+support_platforms:
+  - aiocqhttp
+astrbot_version: ">=4.9.2"

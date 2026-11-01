@@ -1,0 +1,159 @@
+{
+  "enabled": {
+    "description": "启用鱼鱼找鸡",
+    "hint": "关掉后指令仍会响应，但只回一句「现在是关的」",
+    "type": "bool",
+    "default": true
+  },
+  "engines": {
+    "description": "反查引擎",
+    "hint": "可选：lens（谷歌 Lens，最准，需要外网）、saucenao（动漫/同人）、tracemoe（动画截图）、iqdb（动漫图库，常排队）、baidu（百度识图）、bing、yandex、google。留空 = lens,saucenao,tracemoe。baidu/bing/yandex/google 需要先开 public_upload 把图传到临时图床",
+    "type": "list",
+    "default": [
+      "lens",
+      "saucenao",
+      "tracemoe"
+    ]
+  },
+  "timeout_sec": {
+    "description": "单个引擎超时（秒）",
+    "hint": "谷歌 Lens 冷启动较慢，建议不低于 30",
+    "type": "int",
+    "slider": {
+      "min": 10,
+      "max": 180,
+      "step": 5
+    },
+    "default": 45
+  },
+  "max_accounts": {
+    "description": "最多报几个账号",
+    "hint": "同一张图命中多个平台时，按「推特 → 微博 → B站 → Instagram → Pixiv」取前 N 个",
+    "type": "int",
+    "slider": {
+      "min": 1,
+      "max": 6,
+      "step": 1
+    },
+    "default": 3
+  },
+  "strict_consensus": {
+    "description": "名字对不上的号不报",
+    "hint": "开：只报「名字在结果里反复出现」的那个人的号（宁可少报，不把别人的号当成本人）；关：把所有翻到的号都报出来自己挑",
+    "type": "bool",
+    "default": true
+  },
+  "proxy": {
+    "description": "出站代理",
+    "hint": "如 http://127.0.0.1:7890，只影响插件自己的请求，不动系统代理。连不上谷歌时填这个；留空 = 直连",
+    "type": "string",
+    "default": ""
+  },
+  "cooldown_sec": {
+    "description": "同一人冷却（秒）",
+    "hint": "同一个人在这段时间内重复发指令会被挡住，避免把免费额度刷爆；0 = 关闭",
+    "type": "int",
+    "slider": {
+      "min": 0,
+      "max": 600,
+      "step": 5
+    },
+    "default": 30
+  },
+  "per_user_day": {
+    "description": "每人每日次数",
+    "hint": "按北京时间分天；0 = 不限制（管理员不受限）",
+    "type": "int",
+    "slider": {
+      "min": 0,
+      "max": 200,
+      "step": 1
+    },
+    "default": 20
+  },
+  "global_day": {
+    "description": "全站每日次数",
+    "hint": "所有会话加起来的上限，防止一个群刷爆引擎额度；0 = 不限制",
+    "type": "int",
+    "slider": {
+      "min": 0,
+      "max": 2000,
+      "step": 10
+    },
+    "default": 100
+  },
+  "cache_days": {
+    "description": "结果缓存天数",
+    "hint": "同一张图（按文件内容哈希）在缓存期内直接回结果，不再消耗引擎额度",
+    "type": "int",
+    "slider": {
+      "min": 0,
+      "max": 365,
+      "step": 1
+    },
+    "default": 30
+  },
+  "cache_max": {
+    "description": "缓存条数上限",
+    "hint": "超过后按最久未用淘汰，避免 state.json 无限膨胀",
+    "type": "int",
+    "slider": {
+      "min": 50,
+      "max": 5000,
+      "step": 50
+    },
+    "default": 500
+  },
+  "send_progress": {
+    "description": "先回一句「收到」",
+    "hint": "查图要 10~40 秒，先回一句能让人知道在跑",
+    "type": "bool",
+    "default": true
+  },
+  "send_on_miss": {
+    "description": "没查到时给完整说明",
+    "hint": "关掉后没查到只回一句短的，不再解释是哪个引擎失败",
+    "type": "bool",
+    "default": true
+  },
+  "found_image": {
+    "description": "命中时附带的表情图",
+    "hint": "填图片路径（绝对路径，或相对插件目录），比如一张「找到了」的表情包；留空 = 只发文字",
+    "type": "string",
+    "default": ""
+  },
+  "public_upload": {
+    "description": "允许上传临时图床",
+    "hint": "必应/百度/Yandex/谷歌识图只吃公网图片地址，开启后会把图传到 litterbox（1 小时过期）。默认关闭",
+    "type": "bool",
+    "default": false
+  },
+  "upload_ttl": {
+    "description": "临时图床有效期",
+    "hint": "litterbox 支持的时长：1h / 12h / 24h / 72h",
+    "type": "string",
+    "default": "1h"
+  },
+  "max_image_mb": {
+    "description": "图片体积上限（MB）",
+    "hint": "超过就不查，避免把超大的图发给引擎",
+    "type": "int",
+    "slider": {
+      "min": 1,
+      "max": 20,
+      "step": 1
+    },
+    "default": 10
+  },
+  "artwork_min_similarity": {
+    "description": "画作平台相似度门槛",
+    "hint": "Pixiv 是画作平台，相似度低于这个值的「相似画作」不再当成图源（0.8 = 80%）",
+    "type": "float",
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    },
+    "default": 0.8
+  }
+}

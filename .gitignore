@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 运行期数据（配额 / 缓存 / 选项）
+data/
+state/
+*.tmp
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/
